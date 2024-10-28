@@ -1,171 +1,100 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
+const express = require('express');
+const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
+const session = require('express-session');
+const fileUpload = require('express-fileupload');
 
-const PORT = 8000;
-const DATA_FILE = path.join(__dirname, "UserApi", "userapi.json");
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-const server = http.createServer((req, res) => {
-    // Set CORS headers for all responses
-    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// MongoDB connection
+const mongoURI = process.env.MONGODB_URI || 'your-mongodb-uri'; // Set this in Back4App environment variables
 
-    if (req.method === "OPTIONS") {
-        // Handle preflight request
-        res.writeHead(204);
-        res.end();
-        return;
-    }
-  
-    if (req.url === "/userapi") {
-        res.end("Hello from the home side");
-    
-    } else if (req.url === "/") {
-        if (req.method === "GET") {
-            fs.promises.readFile(DATA_FILE, "utf-8")
-                .then(data => {
-                    res.writeHead(200, { "Content-Type": "application/json" });
-                    res.end(data);
-                })
-                .catch(err => {
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "Failed to read data" }));
-                });
-        } else if (req.method === "POST") {
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString(); // Convert Buffer to string
-            });
+mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.error('MongoDB connection error:', err));
 
-            req.on('end', async () => {
-                try {
-                    const newUser = JSON.parse(body);
-                    
-                    // Basic validation
-                    if (!newUser.name || !newUser.email || !newUser.mobile || !newUser.address) {
-                        res.writeHead(400, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "All fields are required" }));
-                        return;
-                    }
+// User schema
+const userSchema = new mongoose.Schema({
+    name: String,
+    email: String,
+    mobile: String,
+    address: String
+});
 
-                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
-                    const users = JSON.parse(data);
-                    const newId = users.length ? (parseInt(users[users.length - 1].id) + 1).toString() : "1"; // Use string ID
-                    const userToAdd = { id: newId, ...newUser };
-                    users.push(userToAdd);
+const User = mongoose.model('User', userSchema);
 
-                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(users, null, 2));
-                    res.writeHead(201, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ message: "User added successfully!", user: userToAdd }));
-                } catch (err) {
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "Failed to save data" }));
-                }
-            });
-        } else if (req.method === "PUT") {
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString(); // Convert Buffer to string
-            });
+// Middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+    secret: 'your-secret-key', // Use an environment variable in production
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false } // Set to true if using HTTPS
+}));
+app.use(fileUpload());
 
-            req.on('end', async () => {
-                try {
-                    const updatedUser = JSON.parse(body);
+// Health check route
+app.get('/', (req, res) => {
+    res.send('Hello World! The server is running.');
+});
 
-                    if (!updatedUser.id) {
-                        res.writeHead(400, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "User ID is required for update" }));
-                        return;
-                    }
-
-                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
-                    const users = JSON.parse(data);
-
-                    const userIndex = users.findIndex(user => user.id === updatedUser.id);
-                    if (userIndex === -1) {
-                        res.writeHead(404, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "User not found" }));
-                        return;
-                    }
-
-                    users[userIndex] = { ...users[userIndex], ...updatedUser };
-                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(users, null, 2));
-
-                    res.writeHead(200, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ message: "User updated successfully!", user: users[userIndex] }));
-
-                } catch (error) {
-                    console.error("Error updating user:", error);
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "Failed to update data" }));
-                }
-            });
-        } else if (req.method === "DELETE") {
-            let body = '';
-            req.on('data', chunk => {
-                body += chunk.toString();
-            });
-        
-            req.on('end', async () => {
-                try {
-                    const { id } = JSON.parse(body); // Extract ID from request body
-                    if (!id) {
-                        res.writeHead(400, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "User ID is required for deletion" }));
-                        return;
-                    }
-        
-                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
-                    const users = JSON.parse(data);
-        
-                    // Filter out users with the given id
-                    const updatedUsers = users.filter(user => user.id !== id);
-        
-                    if (updatedUsers.length === users.length) {
-                        res.writeHead(404, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "User not found or ID is invalid" }));
-                        return;
-                    }
-        
-                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(updatedUsers, null, 2));
-        
-                    res.writeHead(200, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ message: "User deleted successfully" }));
-                } catch (error) {
-                    console.error("Error deleting user:", error); // Log error on server
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "Failed to delete data" }));
-                }
-            });
-        }
-        
-    } else if (req.url.startsWith("/userapi/") && req.method === "GET") {
-        const userId = req.url.split("/").pop(); // Extract ID from the URL
-        fs.promises.readFile(DATA_FILE, "utf-8")
-            .then(data => {
-                const users = JSON.parse(data);
-                const user = users.find(user => user.id.toString() === userId); // Ensure type matches
-
-                if (!user) {
-                    res.writeHead(404, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ error: "User not found" }));
-                    return;
-                }
-
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify(user));
-            })
-            .catch(err => {
-                res.writeHead(500, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "Failed to read data" }));
-            });
-    } else {
-        res.writeHead(404, { "Content-Type": "text/html" });
-        res.end("<h1>404 error: Page doesn't exist</h1>");
+// CRUD routes
+// Create a user
+app.post('/api/users', async (req, res) => {
+    const { name, email, mobile, address } = req.body;
+    try {
+        const newUser = new User({ name, email, mobile, address });
+        await newUser.save();
+        res.status(201).json(newUser);
+    } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-    console.log(`Listening on port ${PORT}`);
+// Read all users
+app.get('/api/users', async (req, res) => {
+    try {
+        const users = await User.find();
+        res.json(users);
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Update a user
+app.put('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, email, mobile, address } = req.body;
+    try {
+        const updatedUser = await User.findByIdAndUpdate(id, { name, email, mobile, address }, { new: true });
+        if (!updatedUser) return res.status(404).json({ error: 'User not found' });
+        res.json(updatedUser);
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Delete a user
+app.delete('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const deletedUser = await User.findByIdAndDelete(id);
+        if (!deletedUser) return res.status(404).json({ error: 'User not found' });
+        res.json({ message: 'User deleted' });
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+}).on('error', (err) => {
+    console.error('Failed to start the server:', err);
 });
