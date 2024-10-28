@@ -14,10 +14,10 @@ const server = http.createServer((req, res) => {
         return;
     }
   
-    if (req.url === "/") {
+    if (req.url === "/userapi") {
         res.end("Hello from the home side");
     
-    } else if (req.url === "/userapi") {
+    } else if (req.url === "/") {
         if (req.method === "GET") {
             fs.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8", (err, data) => {
                 if (err) {
