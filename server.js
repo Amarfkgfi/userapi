@@ -1,5 +1,9 @@
 const http = require("http");
 const fs = require("fs");
+const path = require("path");
+
+const PORT = 8000;
+const DATA_FILE = path.join(__dirname, "UserApi", "userapi.json");
 
 const server = http.createServer((req, res) => {
     // Set CORS headers for all responses
@@ -19,46 +23,45 @@ const server = http.createServer((req, res) => {
     
     } else if (req.url === "/") {
         if (req.method === "GET") {
-            fs.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8", (err, data) => {
-                if (err) {
+            fs.promises.readFile(DATA_FILE, "utf-8")
+                .then(data => {
+                    res.writeHead(200, { "Content-Type": "application/json" });
+                    res.end(data);
+                })
+                .catch(err => {
                     res.writeHead(500, { "Content-Type": "application/json" });
                     res.end(JSON.stringify({ error: "Failed to read data" }));
-                    return;
-                }
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(data);
-            });
+                });
         } else if (req.method === "POST") {
             let body = '';
             req.on('data', chunk => {
                 body += chunk.toString(); // Convert Buffer to string
             });
 
-            req.on('end', () => {
-                const newUser = JSON.parse(body);
-
-                fs.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8", (err, data) => {
-                    if (err) {
-                        res.writeHead(500, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ error: "Failed to read data" }));
+            req.on('end', async () => {
+                try {
+                    const newUser = JSON.parse(body);
+                    
+                    // Basic validation
+                    if (!newUser.name || !newUser.email || !newUser.mobile || !newUser.address) {
+                        res.writeHead(400, { "Content-Type": "application/json" });
+                        res.end(JSON.stringify({ error: "All fields are required" }));
                         return;
                     }
 
+                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
                     const users = JSON.parse(data);
                     const newId = users.length ? (parseInt(users[users.length - 1].id) + 1).toString() : "1"; // Use string ID
                     const userToAdd = { id: newId, ...newUser };
                     users.push(userToAdd);
 
-                    fs.writeFile(`${__dirname}/UserApi/userapi.json`, JSON.stringify(users, null, 2), err => {
-                        if (err) {
-                            res.writeHead(500, { "Content-Type": "application/json" });
-                            res.end(JSON.stringify({ error: "Failed to save data" }));
-                            return;
-                        }
-                        res.writeHead(201, { "Content-Type": "application/json" });
-                        res.end(JSON.stringify({ message: "User added successfully!", user: userToAdd }));
-                    });
-                });
+                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(users, null, 2));
+                    res.writeHead(201, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ message: "User added successfully!", user: userToAdd }));
+                } catch (err) {
+                    res.writeHead(500, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ error: "Failed to save data" }));
+                }
             });
         } else if (req.method === "PUT") {
             let body = '';
@@ -76,7 +79,7 @@ const server = http.createServer((req, res) => {
                         return;
                     }
 
-                    const data = await fs.promises.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8");
+                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
                     const users = JSON.parse(data);
 
                     const userIndex = users.findIndex(user => user.id === updatedUser.id);
@@ -87,8 +90,7 @@ const server = http.createServer((req, res) => {
                     }
 
                     users[userIndex] = { ...users[userIndex], ...updatedUser };
-
-                    await fs.promises.writeFile(`${__dirname}/UserApi/userapi.json`, JSON.stringify(users, null, 2));
+                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(users, null, 2));
 
                     res.writeHead(200, { "Content-Type": "application/json" });
                     res.end(JSON.stringify({ message: "User updated successfully!", user: users[userIndex] }));
@@ -99,8 +101,7 @@ const server = http.createServer((req, res) => {
                     res.end(JSON.stringify({ error: "Failed to update data" }));
                 }
             });
-        } 
-        else if (req.method === "DELETE") {
+        } else if (req.method === "DELETE") {
             let body = '';
             req.on('data', chunk => {
                 body += chunk.toString();
@@ -115,7 +116,7 @@ const server = http.createServer((req, res) => {
                         return;
                     }
         
-                    const data = await fs.promises.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8");
+                    const data = await fs.promises.readFile(DATA_FILE, "utf-8");
                     const users = JSON.parse(data);
         
                     // Filter out users with the given id
@@ -127,7 +128,7 @@ const server = http.createServer((req, res) => {
                         return;
                     }
         
-                    await fs.promises.writeFile(`${__dirname}/UserApi/userapi.json`, JSON.stringify(updatedUsers, null, 2));
+                    await fs.promises.writeFile(DATA_FILE, JSON.stringify(updatedUsers, null, 2));
         
                     res.writeHead(200, { "Content-Type": "application/json" });
                     res.end(JSON.stringify({ message: "User deleted successfully" }));
@@ -139,36 +140,32 @@ const server = http.createServer((req, res) => {
             });
         }
         
-        
-    }else if (req.url.startsWith("/userapi/") && req.method === "GET") {
+    } else if (req.url.startsWith("/userapi/") && req.method === "GET") {
         const userId = req.url.split("/").pop(); // Extract ID from the URL
-        fs.readFile(`${__dirname}/UserApi/userapi.json`, "utf-8", (err, data) => {
-            if (err) {
+        fs.promises.readFile(DATA_FILE, "utf-8")
+            .then(data => {
+                const users = JSON.parse(data);
+                const user = users.find(user => user.id.toString() === userId); // Ensure type matches
+
+                if (!user) {
+                    res.writeHead(404, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ error: "User not found" }));
+                    return;
+                }
+
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify(user));
+            })
+            .catch(err => {
                 res.writeHead(500, { "Content-Type": "application/json" });
                 res.end(JSON.stringify({ error: "Failed to read data" }));
-                return;
-            }
-
-            const users = JSON.parse(data);
-            const user = users.find(user => user.id.toString() === userId); // Ensure type matches
-
-            if (!user) {
-                res.writeHead(404, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "User not found" }));
-                return;
-            }
-
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify(user));
-        });
-    }
-     
-    else {
+            });
+    } else {
         res.writeHead(404, { "Content-Type": "text/html" });
         res.end("<h1>404 error: Page doesn't exist</h1>");
     }
 });
 
-server.listen(8000, "127.0.0.1", () => {
-    console.log("Listening on port 8000");
+server.listen(PORT, "127.0.0.1", () => {
+    console.log(`Listening on port ${PORT}`);
 });
